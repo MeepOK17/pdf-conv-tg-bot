@@ -1,6 +1,7 @@
 import os
 
 from bot.handler import create_bot
+from core.cache import FileCache
 
 
 def _sync_proxy_env() -> None:
@@ -13,7 +14,11 @@ def _sync_proxy_env() -> None:
 def main() -> None:
     _sync_proxy_env()
     token = os.environ["BOT_TOKEN"]
-    bot = create_bot(token)
+    cache = FileCache(
+        cache_dir=os.environ.get("CACHE_DIR", "/tmp/pdf_cache"),
+        max_size_bytes=int(os.environ.get("CACHE_MAX_MB", "500")) * 1024 * 1024,
+    )
+    bot = create_bot(token, cache)
     print("Bot started")
     bot.infinity_polling()
 

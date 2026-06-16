@@ -4,12 +4,13 @@ import tempfile
 import telebot
 
 from core import DocToPdfConverter
+from core.cache import FileCache
 from core.doc_converter import SUPPORTED_FORMATS
 
 _SUPPORTED_EXT = ", ".join(sorted(SUPPORTED_FORMATS))
 
 
-def create_bot(token: str) -> telebot.TeleBot:
+def create_bot(token: str, cache: FileCache) -> telebot.TeleBot:
     bot = telebot.TeleBot(token)
     converter = DocToPdfConverter()
 
@@ -36,6 +37,17 @@ def create_bot(token: str) -> telebot.TeleBot:
         status_msg = bot.reply_to(message, "Конвертирую...")
 
         try:
+            cached = cache.get(doc.file_unique_id)
+            if cached:
+                with open(cached, "rb") as pdf:
+                    bot.send_document(
+                        message.chat.id,
+                        pdf,
+                        reply_to_message_id=message.message_id,
+                        visible_file_name=os.path.splitext(file_name)[0] + ".pdf",
+                    )
+                return
+
             file_info = bot.get_file(doc.file_id)
             file_bytes = bot.download_file(file_info.file_path)
 
@@ -45,14 +57,16 @@ def create_bot(token: str) -> telebot.TeleBot:
                     f.write(file_bytes)
 
                 output_path = converter.convert(input_path, tmp_dir)
+                pdf_bytes = open(output_path, "rb").read()
 
-                with open(output_path, "rb") as pdf:
-                    bot.send_document(
-                        message.chat.id,
-                        pdf,
-                        reply_to_message_id=message.message_id,
-                        visible_file_name=os.path.splitext(file_name)[0] + ".pdf",
-                    )
+            cached_path = cache.put(doc.file_unique_id, pdf_bytes)
+            with open(cached_path, "rb") as pdf:
+                bot.send_document(
+                    message.chat.id,
+                    pdf,
+                    reply_to_message_id=message.message_id,
+                    visible_file_name=os.path.splitext(file_name)[0] + ".pdf",
+                )
 
         except Exception as e:
             bot.reply_to(message, f"Ошибка: {e}")
