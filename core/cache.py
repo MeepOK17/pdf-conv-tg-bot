@@ -1,5 +1,10 @@
+import hashlib
 from pathlib import Path
 from typing import Optional
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 class FileCache:
@@ -8,23 +13,48 @@ class FileCache:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._max_size = max_size_bytes
 
-    def get(self, key: str) -> Optional[Path]:
-        p = self._dir / f"{key}.pdf"
-        if p.exists():
-            p.touch()  # обновляем mtime для LRU
-            return p
+    # --- lookup ---
+
+    def get_by_id(self, unique_id: str) -> Optional[Path]:
+        ref = self._dir / f"{unique_id}.ref"
+        if not ref.exists():
+            return None
+        pdf = self._dir / f"{ref.read_text().strip()}.pdf"
+        if pdf.exists():
+            pdf.touch()
+            return pdf
+        ref.unlink()  # stale ref
         return None
 
-    def put(self, key: str, data: bytes) -> Path:
-        p = self._dir / f"{key}.pdf"
-        p.write_bytes(data)
+    def get_by_hash(self, hash_key: str) -> Optional[Path]:
+        pdf = self._dir / f"{hash_key}.pdf"
+        if pdf.exists():
+            pdf.touch()
+            return pdf
+        return None
+
+    # --- store ---
+
+    def put(self, unique_id: str, hash_key: str, data: bytes) -> Path:
+        pdf = self._dir / f"{hash_key}.pdf"
+        pdf.write_bytes(data)
+        (self._dir / f"{unique_id}.ref").write_text(hash_key)
         self._evict()
-        return p
+        return pdf
+
+    def link_id(self, unique_id: str, hash_key: str) -> None:
+        """Привязать unique_id к уже существующему hash (hit по хэшу)."""
+        (self._dir / f"{unique_id}.ref").write_text(hash_key)
+
+    # --- eviction ---
 
     def _evict(self) -> None:
-        files = sorted(self._dir.iterdir(), key=lambda f: f.stat().st_mtime)
-        total = sum(f.stat().st_size for f in files)
-        for f in files:
+        pdfs = sorted(
+            (f for f in self._dir.iterdir() if f.suffix == ".pdf"),
+            key=lambda f: f.stat().st_mtime,
+        )
+        total = sum(f.stat().st_size for f in pdfs)
+        for f in pdfs:
             if total <= self._max_size:
                 break
             total -= f.stat().st_size

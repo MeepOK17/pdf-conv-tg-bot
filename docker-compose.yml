@@ -3,3 +3,22 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    volumes:
+      - pdf_cache:/tmp/pdf_cache
+    ports:
+      - "8000:8000"
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    restart: unless-stopped
+    environment:
+      - API_URL=http://bot:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - bot
+
+volumes:
+  pdf_cache:
